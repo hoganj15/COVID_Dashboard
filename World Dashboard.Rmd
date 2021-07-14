@@ -1,0 +1,110 @@
+---
+title: "COVID-19 Dashboard"
+output: 
+  flexdashboard::flex_dashboard:
+    orientation: columns
+    vertical_layout: fill
+    theme: cerulean
+runtime: shiny
+---
+
+```{r setup, include=FALSE}
+library(flexdashboard)
+library(shiny)
+library(dplyr)
+library(plotly)
+source("helpers.R")
+```
+
+```{r data}
+
+borders = rjson::fromJSON(file="https://raw.githubusercontent.com/johan/world.geo.json/master/countries.geo.json")
+country_codes = read.csv("https://raw.githubusercontent.com/hoganj15/MMA_Assignment_Data/main/COVID/country_codes.csv") %>% rename(Country = name, Code = code, lat = latitude, lon = longitude, two_digit = country)
+map_data = countries %>% group_by(Country) %>% filter(Date == max(Date))
+map_data = left_join(countries, country_codes, by = "Country")
+map_data = left_join(map_data, demographics, by = "Country")
+map_data$susceptible = map_data$N - map_data$Total
+map_data$infected = map_data$Total - map_data$Recovered - map_data$Deaths #active cases are all cases minus ones that have recovered or died
+map_data$removed = map_data$Recovered + map_data$Deaths
+
+```
+
+
+World Active Cases as Percentage of Population
+=======================================================================
+
+Column {.sidebar data-width=200}
+-------------------------------------------------------------------
+
+The heatmap to the right shows the prevalence of COVID-19 in each country today. Prevalence is calculated as the % of a country's population that are currently infected with COVID-19.
+
+
+Column {}
+-----------------------------------------------------------------------
+
+### Heatmap
+
+
+```{r}
+renderPlotly({
+  plot_ly(type = "choroplethmapbox", geojson = borders, locations = map_data$Code, z = 100*map_data$infected/map_data$N, colorscale="Cividis", zmin = 0, zmax = 8, text = ~paste("<br>", "Active Cases:", map_data$infected, "<br>", "Total Cases:", map_data$Total, "<br>", "Total Deaths:", map_data$Deaths), marker = list(line = list(width=0), opacity=0.75)) %>% 
+    layout(mapbox = list(style = "open-street-map", zoom = 2.1), title = paste("Active Cases as % of Population"))
+})
+```
+
+
+Specific Country Metrics
+=======================================================================
+
+Column {.sidebar data-width=200}
+-------------------------------------------------------------------
+```{r}
+selectInput(inputId = "country_chosen", label = "Select Countries:", choices = unique(countries$Country), multiple = TRUE, selected = c("US", "United Kingdom", "Canada", "South Africa", "Netherlands"))
+```
+
+
+Column {data-width=400}
+-----------------------------------------------------------------------
+
+### Point Prevalence
+
+Point Prevalence is a metric to capture the proportion of a given country's population that had COVID-19 at a given time. Higher numbers here indicate a period where COVID was very common in that country.
+
+
+```{r}
+renderPlotly({
+  fig = plot_ly()
+  for (country_chosen in input$country_chosen){fig = fig %>% add_trace(data = plotting_metrics(country_chosen), x = ~day, y = ~100*point_prevalence, mode = 'lines', name = country_chosen)}
+  fig = fig %>% layout(title = paste("Point Prevalence"), hovermode = 'x unified', xaxis = list(title = "Day"), yaxis = list(title = "% of Population"))
+})
+```
+
+Column {data-width=400}
+-----------------------------------------------------------------------
+
+### Case Fatality Rate
+
+Case fatality is a measure that captures the proportion of COVID-19 cases that ended up being fatal. High numbers here indicate that a high percentage of people that got COVID-19 were dying in that country and at that time.
+
+```{r}
+renderPlotly({
+  fig = plot_ly()
+  for (country_chosen in input$country_chosen){fig = fig %>% add_trace(data = plotting_metrics(country_chosen), x = ~day, y = ~case_fatality, mode = 'lines', name = country_chosen)}
+  fig = fig %>% layout(title = paste("Case Fatality"), hovermode = 'x unified', xaxis = list(title = "Day"), yaxis = list(title = "Fatality Rate"))
+})
+```
+
+
+### Cases/Population
+
+This shows the total number of cases over time, as a proportion of the population. Higher numbers here indicate that a higher percentage of the population has gotten COVID-19.
+
+```{r}
+renderPlotly({
+  fig = plot_ly()
+  for (country_chosen in input$country_chosen){fig = fig %>% add_trace(data = plotting_metrics(country_chosen), x = ~day, y = ~Total/N, mode = 'lines', name = country_chosen)}
+  fig = fig %>% layout(title = paste("Total Cases as Percentage of Population"), hovermode = 'x unified', xaxis = list(title = "Day"), yaxis = list(title = "$ of Population"))
+})
+```
+
+
